@@ -1,0 +1,48 @@
+
+name: Weather Data Ingestion
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weather-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest-weather:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run database migrations
+        run: python -m alembic upgrade head
+
+      - name: Collect weather observation
+        run: |
+          python -c "from app.services.ingestion_worker import run_ingestion_cycle; r = run_ingestion_cycle(collect_traffic=False, collect_weather=True); print(r); raise SystemExit(0 if r.weather_status == 'success' else 1)"
