@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import timezone
 
 import httpx
 import pytest
@@ -68,7 +68,10 @@ def test_open_meteo_http_failure(monkeypatch):
 
     client = OpenMeteoClient()
 
-    with pytest.raises(WeatherAPIError, match="Open-Meteo request failed"):
+    with pytest.raises(
+        WeatherAPIError,
+        match="Open-Meteo request failed",
+    ):
         client.get_current_weather()
 
 
@@ -143,6 +146,36 @@ def test_weather_response_to_observation():
     assert observation.cloud_cover == 40
 
 
+def test_weather_timestamp_is_normalized_to_utc():
+    """Test that a naive Hyderabad timestamp is converted to UTC."""
+
+    weather = WeatherResponse.model_validate(
+        {
+            "latitude": 17.4065,
+            "longitude": 78.4772,
+            "timezone": "Asia/Kolkata",
+            "current": {
+                "time": "2026-10-13T17:00",
+                "interval": 900,
+                "temperature_2m": 30.0,
+                "relative_humidity_2m": 60,
+                "precipitation": 0.0,
+                "wind_speed_10m": 10.0,
+                "cloud_cover": 20,
+            },
+        }
+    )
+
+    observation = weather_response_to_observation(weather)
+
+    assert observation.observed_at.isoformat() == (
+        "2026-10-13T11:30:00+00:00"
+    )
+    assert observation.observed_at.utcoffset() == timezone.utc.utcoffset(
+        observation.observed_at
+    )
+
+
 def test_weather_database_insertion():
     """Test complete weather ingestion into PostgreSQL."""
 
@@ -182,6 +215,10 @@ def test_weather_database_insertion():
         assert observation.humidity == 60
         assert observation.wind_speed == 10.5
         assert observation.cloud_cover == 40
+
+        assert observation.observed_at.utcoffset() == timezone.utc.utcoffset(
+            observation.observed_at
+        )
 
     finally:
         if observation is not None and observation.id is not None:

@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.config import settings
 from app.models.weather import WeatherObservation
 
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 class WeatherAPIError(Exception):
     """Raised when the Open-Meteo API request fails."""
@@ -102,13 +104,26 @@ class OpenMeteoClient:
             ) from exc
 
 
+
 def weather_response_to_observation(
     weather: WeatherResponse,
 ) -> WeatherObservation:
-    """Convert a validated Open-Meteo response into a WeatherObservation."""
+    """Convert Open-Meteo data into a UTC-normalized observation."""
+
+    source_time = weather.current.time
+
+    # Open-Meteo returns local wall time when timezone="auto".
+    # If the timestamp is naive, interpret it in the source timezone.
+    if source_time.tzinfo is None:
+        source_time = source_time.replace(
+            tzinfo=ZoneInfo(weather.timezone)
+        )
+
+    # Normalize all stored observation timestamps to UTC.
+    observed_at = source_time.astimezone(timezone.utc)
 
     return WeatherObservation(
-        observed_at=weather.current.time,
+        observed_at=observed_at,
         latitude=weather.latitude,
         longitude=weather.longitude,
         temperature=weather.current.temperature_2m,
